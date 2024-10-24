@@ -1,0 +1,40 @@
+---
+title: "norsk eneboliger"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: setup
+library(tidyverse)
+library(sf)
+```
+
+```{r}
+#| paged.print: false
+load(file = "data/bld06_19.Rdata")
+bld90_19
+```
+
+```{r}
+sfd_06_19 <- bld90_19 %>% 
+  #pick 'Enebolig'
+  filter(btype == 'Enebolig') %>% 
+  #make new variable with municipality number
+  mutate(knr = substr(knrNavn, start = 1, stop = 4)) %>% 
+  #put our new variable at the far left
+  select(knr, everything()) %>% 
+  #pivot_longer the variables y2006 to y2019
+  pivot_longer(cols = y2006:y2019, names_to = "year", names_prefix = "y", values_to = "pm2") %>% 
+  #drop btype, all obs. are 'Enebolig'
+  select(-btype)
+```
+
+```{r}
+#| paged.print: false
+sfd_18 <- sfd_06_19 %>% 
+  filter(year == '2018')
+
+summary(sfd_18)
+```
+

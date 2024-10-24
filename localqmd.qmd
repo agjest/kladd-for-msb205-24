@@ -1,0 +1,179 @@
+---
+title: "Lucas county"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: setup
+#| message: false
+library(tidyverse)
+library(sf)
+library(spData)
+library(spdep)
+library(spatialreg)
+```
+
+```{r}
+lucas <- spData::house
+```
+
+```{r}
+class(lucas)
+```
+
+```{r}
+lucas_sf <- st_as_sf(lucas)
+```
+
+```{r}
+lucas_sf |> 
+  select(price) |> 
+  plot()
+```
+
+```{r}
+# functions from spdep
+lucas_mat_nb <- knearneigh(lucas, k = 5)
+lucas_nb <- knn2nb(lucas_mat_nb)
+lucas_w <- nb2listw(lucas_nb, style = "W")
+```
+
+```{r}
+str(lucas_mat_nb)
+```
+
+```{r}
+lucas_mat_nb$nn[1:10,]
+```
+
+```{r}
+lucas_nb
+```
+
+```{r}
+names(lucas_w)
+```
+
+```{r}
+lucas_w$weights[1:5]
+```
+
+```{r}
+set.seed(42)
+lucas <- spData::house %>% 
+  st_as_sf() %>% 
+# pick 3000 numbers from 1:25357 without replacement
+# classic solution
+#.[sample(dim(.)[1], size = 3000),]
+# tidyverse 
+  slice_sample(n = 3000)
+```
+
+```{r}
+my_age <- as.numeric(levels(lucas$syear))[as.integer(lucas$syear)] - lucas$yrbuilt
+my_age <- my_age + 3
+my_age1 <- 1999 - lucas$yrbuilt
+```
+
+```{r}
+# Trying to follow Bivand 2011, NHH Discussion Paper
+# age seems to include strange values. Turns out to be age in 1999 divided by 100
+# We calculate age at time of sale as age_sold = syear - yrbuilt
+# syear is factor, convert to numeric
+lucas$age_sold <- as.numeric(levels(lucas$syear))[as.integer(lucas$syear)] - lucas$yrbuilt
+# Scale age_sold by dividing by 100
+lucas$age_sold <- lucas$age_sold/100
+```
+
+```{r}
+hmod1 <- "I(log(price)) ~ age_sold + I(age_sold^2) + I(age_sold^3) + log(TLA) + log(lotsize) + rooms + beds + syear"
+```
+
+```{r}
+# functions from spdep
+lucas_mat_nb <- knearneigh(lucas, k = 5)
+lucas_nb <- knn2nb(lucas_mat_nb)
+lucas_w <- nb2listw(lucas_nb, style = "W")
+```
+
+### SDEM
+
+```{r}
+SDEM <- errorsarlm(hmod1, data = lucas, listw = lucas_w, 
+                   Durbin = TRUE, na.action = na.omit)
+```
+
+```{r}
+# Tolker impacts
+summary(impacts(SDEM), zstats = TRUE)
+```
+
+### SEM
+
+```{r}
+#
+# No spatial effects in the explanatory variables
+SEM <- errorsarlm(hmod1, data = lucas, listw = lucas_w, 
+                  Durbin = FALSE, na.action = na.omit)
+```
+
+```{r}
+# Tolker koeffisienter
+summary(SEM)
+```
+
+### SLX
+
+```{r}
+# SLX is not costly to compute, so no caching
+SLX <- lmSLX(hmod1, data = lucas, listw = lucas_w, 
+             Durbin = TRUE, na.action = na.omit)
+```
+
+```{r}
+# NEW, 
+summary(SLX)
+```
+
+```{r}
+summary(impacts(SLX))
+```
+
+```{r}
+LR.Sarlm(SEM, SDEM)
+```
+
+```{r}
+LR.Sarlm(SDEM, SLX)
+```
+
+```{r}
+lm1 <- lm(hmod1, data = lucas)
+```
+
+```{r}
+summary(lm1)
+```
+
+```{r}
+LR.Sarlm(SDEM, lm1)
+```
+
+```{r}
+# residuals are with attributes, hence as.vector()
+moran.plot(SDEM$residuals, listw = lucas_w)
+```
+
+```{r}
+# residuals are with attributes, hence as.vector()
+moran.plot(SEM$residuals, listw = lucas_w)
+```
+
+```{r}
+moran.plot(SLX$residuals, listw = lucas_w)
+```
+
+```{r}
+moran.plot(lm1$residuals, listw = lucas_w)
+```

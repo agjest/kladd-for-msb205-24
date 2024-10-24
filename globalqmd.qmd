@@ -1,0 +1,180 @@
+---
+title: "Global"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: setup
+#| message: false
+library(tidyverse)
+library(sf)
+library(spData)
+library(spdep)
+library(spatialreg)
+```
+
+## Global
+
+```{r}
+lucas <- spData::house
+{set.seed(42)
+lucas <- house %>% 
+  st_as_sf() %>% 
+  slice_sample(n = 3000)
+}
+```
+
+```{r}
+# Trying to follow Bivand 2011, NHH Discussion Paper
+# age seems to include strange values. Turns out to be age in 1999 divided by 100
+# We calculate age at time of sale as age_sold = syear - yrbuilt
+# syear is factor, convert to numeric
+lucas$age_sold <- as.numeric(levels(lucas$syear))[as.integer(lucas$syear)] - lucas$yrbuilt
+# Scale age_sold by dividing by 100
+lucas$age_sold <- lucas$age_sold/100
+```
+
+```{r}
+# define the model
+hmod1 <- "log(price) ~ age_sold + I(age_sold^2) + 
+I(age_sold^3) + log(TLA) + log(lotsize) + rooms + beds + syear"
+```
+
+```{r}
+# put result in lm1
+lm1 <- lm(hmod1, data = lucas)
+```
+
+```{r}
+lucas_mat_nb <- knearneigh(lucas, k = 5)
+lucas_nb <- knn2nb(lucas_mat_nb)
+lucas_w <- nb2listw(lucas_nb, style = "W")
+```
+
+### SDM
+
+```{r}
+#| cache: true
+# expensive to compute
+t1 <- Sys.time()
+SDM <- lagsarlm(hmod1, data = lucas, listw = lucas_w, 
+                Durbin = TRUE, na.action = na.omit)
+Sys.time() - t1
+```
+
+
+
+```{r}
+# NB! Koeffisientene SKAL IKKE tolkes
+summary(SDM)
+```
+
+```{r}
+#| cache: true
+# Computing the impacts is expensive too
+# Disse SKAL TOLKES for SDM 
+t1 <- Sys.time()
+imp <- impacts(SDM, listw = lucas_w)
+Sys.time() - t1
+```
+
+```{r}
+imp
+```
+
+```{r}
+# Significance of impacts
+t1 <- Sys.time()
+summary_imp <- summary(impacts(SDM, listw = lucas_w, R = 500), zstats = TRUE)
+Sys.time() - t1
+```
+
+```{r}
+summary_imp
+```
+
+
+
+### SLX
+
+```{r}
+# SLX is not costly to compute, so no caching
+SLX <- lmSLX(hmod1, data = lucas, listw = lucas_w, 
+             Durbin = TRUE, na.action = na.omit)
+```
+
+```{r}
+# Interpret coefficients
+summary(SLX)
+```
+
+
+### SAR (spatial lag)
+
+```{r}
+#| cache: true
+# expensive to compute
+t1 <- Sys.time()
+SAR <- lagsarlm(hmod1, data = lucas, listw = lucas_w, 
+                Durbin = FALSE, na.action = na.omit)
+Sys.time() - t1
+```
+
+```{r}
+# DO NOT INTERPRET COEF.
+summary(SAR)
+```
+
+```{r}
+#| cache: true
+# expensive to compute
+t1 <- Sys.time()
+# INTERPRET IMPACTS
+sum_SAR_imp <- summary(impacts(SAR, listw = lucas_w, R = 500), zstats = TRUE)
+Sys.time() - t1
+```
+
+```{r}
+sum_SAR_imp
+```
+
+```{r}
+LR.Sarlm(SDM, SAR)
+```
+
+```{r}
+LR.Sarlm(SDM, SLX)
+```
+
+```{r}
+LR.Sarlm(SDM, lm1)
+```
+
+## Spatial effects left in the residuals
+
+### OLS
+
+```{r}
+moran.plot(as.vector(residuals(lm1)), listw = lucas_w)
+```
+
+### SAR (spatial lag)
+
+```{r}
+moran.plot(as.vector(residuals(SAR)), listw = lucas_w)
+```
+
+### SLX
+
+```{r}
+# residuals are with attributes, hence as.vector()
+moran.plot(as.vector(SLX$residuals), listw = lucas_w)
+```
+
+### SDM
+
+```{r}
+# residuals are with attributes, hence as.vector()
+moran.plot(as.vector(SDM$residuals), listw = lucas_w)
+```
